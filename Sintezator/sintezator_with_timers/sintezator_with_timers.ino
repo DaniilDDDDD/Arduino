@@ -1,6 +1,9 @@
 #include <Keypad.h>
 #include <Encoder.h>
 #include <timer-api.h>
+#include <SPI.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_PCD8544.h>
 
 int sin_wave[10000] = {
 2048,2049,2050,2051,2053,2054,2055,2057,2058,2059,2060,2062,2063,2064,2066,2067,
@@ -641,8 +644,8 @@ const int bzzz2 = DAC1;
   char hexaKeys[ROWS][COLS] = {
     {'1','2','3','4'},
     {'A','5','6','B'},
-    {'7','8','9','C'},
-    {'*','0','#','D'}
+    {'7','+','9','C'},
+    {'*','-','#','D'}
   };
   byte rowPins[ROWS] = {24, 26, 28, 30}; //connect to the row pinouts of the keypad
   byte colPins[COLS] = {25, 27, 29, 31}; //connect to the column pinouts of the keypad
@@ -653,20 +656,17 @@ const int bzzz2 = DAC1;
     {false,false,false,false},
     {false,false,false,false}
   };
+  int vols[4] = {0,0,0,0};
+  int ticks[4] = {0,0,0,0};
+  int herzs[4] = {0,0,0,0};
   Keypad customKeypad = Keypad( makeKeymap(hexaKeys), rowPins, colPins, ROWS, COLS);
-  char key = '0';
-
   int output = 0;
   int max_vol = 4095;
   int max_herz = 2000;
   int vol=0;
-  int herz=0;
+  int herz=1;
   int norm = 0;
-  int T = 10000;
-  int tick = 0;
-  int delta = 1;
-  
-//  int customKey = 0;
+  int T = 10000;  
 
 
 //encoders
@@ -676,8 +676,15 @@ int xValue = 0;
 int yValue = 1;
 int X = 0;
 int Y = 1;
+bool mode = false;
+int pose = 1;
+int prev_pose = 1;
+bool muted = false;
+Adafruit_PCD8544 display = Adafruit_PCD8544(7, 6, 5, 4, 3);
+char poses[4] = {' ',' ',' ',' '};
 void setup() {
-
+  display.begin();
+  display.setContrast(60);
   analogWriteResolution(12);
   analogReadResolution(12);
   Serial.begin(9600);
@@ -694,22 +701,26 @@ void loop(){
   Y = yEnc.read();
   
   if (X>100){
+    X = 100;
     xEnc.write(100);
     vol=max_vol;
   }
   else {
     if (X<0) {
+      X = 0;
       xEnc.write(0);
       vol=0;
     }
     else vol = max_vol * X / 100;
   }
   if (Y>1000){
+    Y = 1000;
     yEnc.write(1000);
     herz=max_herz;
   }
   else {
     if (Y<1){
+      Y = 1;
       yEnc.write(1);
       herz=1;
     }
@@ -717,42 +728,140 @@ void loop(){
   }
   switch(customKeypad.getKey()){
       case '1':{
+        if(!mode){
         pressed_buttons[0][0]=!pressed_buttons[0][0];
+        if (pressed_buttons[0][0]){
+        vols[0] = X;
+        herzs[0] = herz;}
+        else{
+          vols[0] = 0;
+          herzs[0] = 0;
+          }
+        }
         break;
       }
       case '2':{
+        if(!mode){
         pressed_buttons[0][1]=!pressed_buttons[0][1];
+        if (pressed_buttons[0][1]){
+        vols[1] = vol;
+        herzs[1] = herz;}
+        else{
+          vols[1] = 0;
+          herzs[1] = 0;
+          }
+        }      
         break;
         }
       case '3':{
+        if(!mode){
         pressed_buttons[0][2]=!pressed_buttons[0][2];
+        if (pressed_buttons[0][2]){
+        vols[2] = vol;
+        herzs[2] = herz;}
+        else{
+          vols[2] = 0;
+          herzs[2] = 0;
+          }
+        }
         break;
         }
       case '4':{
+        if(!mode){
         pressed_buttons[0][3]=!pressed_buttons[0][3];
+        if (pressed_buttons[0][3]){
+        vols[3] = vol;
+        herzs[3] = herz;}
+        else{
+          vols[3] = 0;
+          herzs[3] = 0;
+          }
+        }
         break;
         }
+       case 'D':{//mode on
+        mode=!mode;
+        if(mode)
+        {
+          mute();
+//          pressed_buttons[0][0] = false;
+//          pressed_buttons[0][1] = false;
+//          pressed_buttons[0][2] = false;
+//          pressed_buttons[0][3] = false;
+        }
+        break;
+       }
+       case '+':{if(mode){muted = false;prev_pose=pose;pose++;if(pose>4)pose=1;break;}}//up
+       case '-':{if(mode){muted = false;prev_pose=pose;pose--;if(pose<1)pose=4;break;}}//down
+       case '*':{if(mode)muted = !muted;} //stop
     }
-  norm = int(pressed_buttons[0][0])+int(pressed_buttons[0][1])+int(pressed_buttons[0][2])+int(pressed_buttons[0][3]);
+    if (mode){
+      if(!muted){
+      pressed_buttons[0][pose-1] = true;
+      if (pose==1)vols[pose-1]=X;
+      else vols[pose-1]=vol;
+      herzs[pose-1]=herz;}
+      else  mute(pose-1);
+      poses[prev_pose-1] = ' ';
+      poses[pose-1] = '\t';        
+    }
+    else poses[pose-1]=' ';
+    
+    int a = int(pressed_buttons[0][0])+int(pressed_buttons[0][1])+int(pressed_buttons[0][2])+int(pressed_buttons[0][3]);
+    if (a<1)norm = 1;
+    else norm = a;
 
-  Serial.print(vol);Serial.print('/'); Serial.print(herz);Serial.print('\t'); 
-  Serial.print(pressed_buttons[0][0]);Serial.print('/'); Serial.print(pressed_buttons[0][1]);
-  Serial.print('/'); Serial.print(pressed_buttons[0][2]);Serial.print('/'); Serial.println(pressed_buttons[0][3]);
+//  Serial.print(vol);Serial.print('/'); Serial.print(herz);Serial.print('\t'); 
+//  Serial.print(pressed_buttons[0][0]);Serial.print('/'); Serial.print(pressed_buttons[0][1]);
+//  Serial.print('/'); Serial.print(pressed_buttons[0][2]);Serial.print('/'); Serial.println(pressed_buttons[0][3]);
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(BLACK);
+  display.setCursor(0,0);
+  display.print(herz);display.print('/'); display.print(vol);display.print('/');display.println(ticks[0]);
+  display.print(poses[0]);display.print("1 : "); display.print(herzs[0]);display.print('/');display.println(vols[0]);
+  display.print(poses[1]);display.print("2 : "); display.print(herzs[1]);display.print('/');display.println(vols[1]);
+  display.print(poses[2]);display.print("3 : "); display.print(herzs[2]);display.print('/');display.println(vols[2]);
+  display.print(poses[3]);display.print("4 : "); display.print(herzs[3]);display.print('/');display.println(vols[3]);
+  display.display();
 }
+
+void mute()
+{
+  for (int i = 0;i++;i<4){
+    pressed_buttons[0][i] = false;
+    vols[i] = 0;
+    herzs[i] = 0;
+  }
+}
+
+void mute(int pos){
+    pressed_buttons[0][pos] = false;
+    vols[pos] = 0;
+    herzs[pos] = 0;
+  }
 
 void timer_handle_interrupts(int timer) {
       if (pressed_buttons[0][0]){
-        output += X * sin_wave[9999*tick/T] / 100;
+        output += vols[0] * sin_wave[9999*ticks[0]/T] / 100;
+        ticks[0] += herzs[0];
+        if (ticks[0]>(T-1)) ticks[0]=ticks[0]-T-1;
       }
       if (pressed_buttons[0][1]){
-        output += vol*(tick+0.5*T)/T;
+        output += vols[1]*(ticks[1]+0.5*T)/T;
+        ticks[1] += herzs[1];
+        if (ticks[1]>(T-1)) ticks[1]=ticks[1]-T-1;
       }
       if (pressed_buttons[0][2]){
         
-        output += (-abs(tick-0.5*T)*2+1)*vol/T;
+        output += (-abs(ticks[2]-0.5*T)*2+1)*vols[2]/T;
+        ticks[2] += herzs[2];
+        if (ticks[2]>(T-1)) ticks[2]=ticks[2]-T-1;
       }
       if (pressed_buttons[0][3]){
-        output += vol*tick/T;
+        output += vols[3]*ticks[3]/T;
+        ticks[3] += herzs[3];
+        if (ticks[3]>(T-1)) ticks[3]=ticks[3]-T-1;
       }
       if (!pressed_buttons[0][0]&&!pressed_buttons[0][1]&&!pressed_buttons[0][2]&&!pressed_buttons[0][3]) {
         output = 0;
@@ -761,6 +870,4 @@ void timer_handle_interrupts(int timer) {
       analogWrite(bzzz,output);
       analogWrite(bzzz2,output);
       output = 0;
-      tick+=herz;
-      if (tick>(T-1)) tick=tick-T-1;
 }
